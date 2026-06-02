@@ -29,6 +29,9 @@ static FINDER: OnceLock<XsFinder> = OnceLock::new();
 
 #[event(fetch)]
 async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<HttpResponse> {
+    if req.method() == http::Method::OPTIONS {
+        return cors_preflight();
+    }
     if req.method() != http::Method::GET {
         return make_error(405, "method not allowed");
     }
@@ -295,10 +298,26 @@ fn apply_fine(r: &mut GeoResult, subtype: u8, info: DivisionInfo) {
 
 // ---- response helpers ----
 
+const ALLOWED_ORIGIN: &str = "https://ringsaturn.github.io";
+
+fn cors_preflight() -> Result<HttpResponse> {
+    ResponseBuilder::new()
+        .with_status(204)
+        .with_header("access-control-allow-origin", ALLOWED_ORIGIN)?
+        .with_header("access-control-allow-methods", "GET, OPTIONS")?
+        .with_header("access-control-allow-headers", "*")?
+        .with_header("access-control-max-age", "86400")?
+        .with_header("vary", "origin")?
+        .empty()
+        .try_into()
+}
+
 fn make_json<T: Serialize>(status: u16, value: &T) -> Result<HttpResponse> {
     ResponseBuilder::new()
         .with_status(status)
-        .with_header("access-control-allow-origin", "*")?
+        .with_header("access-control-allow-origin", ALLOWED_ORIGIN)?
+        .with_header("access-control-allow-methods", "GET, OPTIONS")?
+        .with_header("vary", "origin")?
         .from_json(value)?
         .try_into()
 }
