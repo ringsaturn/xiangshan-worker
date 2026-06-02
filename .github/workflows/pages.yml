@@ -24,11 +24,7 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Inject Protomaps API key
-        run: |
-          sed -i "s/__PROTOMAPS_KEY__/${{ secrets.PROTOMAPS_API_KEY }}/g" web/index.html
+      - uses: actions/checkout@v6
 
       - uses: actions/configure-pages@v5
 
@@ -37,4 +33,4 @@ jobs:
           path: web
 
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
