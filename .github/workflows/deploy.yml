@@ -22,7 +22,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install worker-build
-        run: cargo install worker-build@0.8
+        run: cargo install worker-build --version "^0.8"
 
       - name: Install Node
         uses: actions/setup-node@v4
