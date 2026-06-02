@@ -11,6 +11,10 @@ crate-type = ["cdylib"]
 worker = { version = "0.8", features = ['http'] }
 worker-macros = { version = "0.8", features = ['http'] }
 http = "1.3"
+geometry-rs = "0.4.1"
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [profile.release]
 lto = true

@@ -4,3 +4,12 @@ compatibility_date = "2026-06-02"
 
 [build]
 command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
+
+# R2 bucket binding — set bucket_name to your actual R2 bucket
+[[r2_buckets]]
+binding = "XS_BUCKET"
+bucket_name = "dataset"
+
+[vars]
+XS_INDEX_KEY = "xiangshan/divisions.xs-index.gz"
+XS_SLAB_KEY  = "xiangshan/divisions.xs-poly"
