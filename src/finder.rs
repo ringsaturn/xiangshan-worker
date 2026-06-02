@@ -82,7 +82,9 @@ impl XsFinder {
 
     // Country preindex: fast-path country index for the coarse cell, if known.
     pub fn country_for_cell(&self, lng: f64, lat: f64) -> Option<u32> {
-        self.country_preindex.get(&Self::coarse_key(lng, lat)).copied()
+        self.country_preindex
+            .get(&Self::coarse_key(lng, lat))
+            .copied()
     }
 
     // Return candidates from `indices` whose bounding box contains (lng, lat).

@@ -9,8 +9,8 @@
 //   3. Fetches slab chunks from R2 via Range requests.
 //   4. Does point-in-polygon with geometry-rs.
 //   5. Returns JSON result with all available name translations.
-mod flatbuf;
 mod finder;
+mod flatbuf;
 mod xsci;
 
 use std::sync::OnceLock;
@@ -19,8 +19,8 @@ use serde::Serialize;
 use worker::*;
 
 use finder::{
-    XsFinder, SUBTYPE_COUNTRY, SUBTYPE_COUNTY, SUBTYPE_DEPENDENCY, SUBTYPE_LOCAL_ADMIN,
-    SUBTYPE_LOCALITY, SUBTYPE_MACRO_COUNTY, SUBTYPE_MACRO_REGION, SUBTYPE_REGION,
+    XsFinder, SUBTYPE_COUNTRY, SUBTYPE_COUNTY, SUBTYPE_DEPENDENCY, SUBTYPE_LOCALITY,
+    SUBTYPE_LOCAL_ADMIN, SUBTYPE_MACRO_COUNTY, SUBTYPE_MACRO_REGION, SUBTYPE_REGION,
 };
 
 static FINDER: OnceLock<XsFinder> = OnceLock::new();
@@ -178,7 +178,11 @@ async fn run_query(
     if coarse.len() == 1 && XsFinder::can_short_circuit(lng, lat) {
         let idx = coarse[0];
         let chunk = fetch_slab(bucket, slab_key, finder.slab_range(idx)).await?;
-        apply_coarse(&mut r, finder.subtype(idx), DivisionInfo::from_chunk(&chunk));
+        apply_coarse(
+            &mut r,
+            finder.subtype(idx),
+            DivisionInfo::from_chunk(&chunk),
+        );
     } else {
         let country_known = r.country.is_some();
         let need = finder.bbox_filtered(coarse, lng, lat, |idx| {
@@ -195,7 +199,11 @@ async fn run_query(
             }
             let chunk = fetch_slab(bucket, slab_key, finder.slab_range(idx)).await?;
             if flatbuf::contains_point(&chunk, lng, lat) {
-                apply_coarse(&mut r, finder.subtype(idx), DivisionInfo::from_chunk(&chunk));
+                apply_coarse(
+                    &mut r,
+                    finder.subtype(idx),
+                    DivisionInfo::from_chunk(&chunk),
+                );
             }
         }
     }
@@ -205,7 +213,11 @@ async fn run_query(
     if fine.len() == 1 && XsFinder::can_short_circuit(lng, lat) {
         let idx = fine[0];
         let chunk = fetch_slab(bucket, slab_key, finder.slab_range(idx)).await?;
-        apply_fine(&mut r, finder.subtype(idx), DivisionInfo::from_chunk(&chunk));
+        apply_fine(
+            &mut r,
+            finder.subtype(idx),
+            DivisionInfo::from_chunk(&chunk),
+        );
     } else {
         let need = finder.bbox_filtered(fine, lng, lat, |_| false);
         for idx in need {
@@ -214,7 +226,11 @@ async fn run_query(
             }
             let chunk = fetch_slab(bucket, slab_key, finder.slab_range(idx)).await?;
             if flatbuf::contains_point(&chunk, lng, lat) {
-                apply_fine(&mut r, finder.subtype(idx), DivisionInfo::from_chunk(&chunk));
+                apply_fine(
+                    &mut r,
+                    finder.subtype(idx),
+                    DivisionInfo::from_chunk(&chunk),
+                );
             }
         }
     }

@@ -25,7 +25,8 @@ fn field_data_pos(buf: &[u8], table_pos: usize, field_idx: u16) -> Option<usize>
     let vtable_slot = 4 + field_idx as usize * 2;
     let soffset = i32::from_le_bytes(buf.get(table_pos..table_pos + 4)?.try_into().ok()?);
     let vtable_pos = (table_pos as isize - soffset as isize) as usize;
-    let vt_size = u16::from_le_bytes(buf.get(vtable_pos..vtable_pos + 2)?.try_into().ok()?) as usize;
+    let vt_size =
+        u16::from_le_bytes(buf.get(vtable_pos..vtable_pos + 2)?.try_into().ok()?) as usize;
     if vtable_slot + 2 > vt_size {
         return None; // field not present in this vtable version
     }

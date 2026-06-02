@@ -80,10 +80,7 @@ pub fn parse(data: &[u8]) -> Result<XsIndex, String> {
     })
 }
 
-fn parse_grid(
-    data: &[u8],
-    count: usize,
-) -> Result<(HashMap<[i16; 2], Vec<u32>>, usize), String> {
+fn parse_grid(data: &[u8], count: usize) -> Result<(HashMap<[i16; 2], Vec<u32>>, usize), String> {
     let mut map = HashMap::with_capacity(count);
     let mut pos = 0;
 
