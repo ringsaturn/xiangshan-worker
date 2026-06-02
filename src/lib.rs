@@ -29,22 +29,28 @@ static FINDER: OnceLock<XsFinder> = OnceLock::new();
 
 #[event(fetch)]
 async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<HttpResponse> {
+    let origin = req
+        .headers()
+        .get("origin")
+        .and_then(|v| v.to_str().ok().map(str::to_owned));
+    let origin = allowed_origin(origin.as_deref());
+
     if req.method() == http::Method::OPTIONS {
-        return cors_preflight();
+        return cors_preflight(origin);
     }
     if req.method() != http::Method::GET {
-        return make_error(405, "method not allowed");
+        return make_error(405, "method not allowed", origin);
     }
 
     let query = req.uri().query().unwrap_or("");
     let (lng, lat, geojson) = match parse_params(query) {
         Ok(v) => v,
-        Err(msg) => return make_error(400, &msg),
+        Err(msg) => return make_error(400, &msg, origin),
     };
 
     let finder = match get_or_init_finder(&env).await {
         Ok(f) => f,
-        Err(e) => return make_error(500, &format!("index init error: {e}")),
+        Err(e) => return make_error(500, &format!("index init error: {e}"), origin),
     };
 
     let bucket = env.bucket("XS_BUCKET")?;
@@ -53,16 +59,16 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<HttpResponse
     let start_ms = js_sys::Date::now();
     let matched = match collect_matched(finder, &bucket, &slab_key, lng, lat).await {
         Ok(m) => m,
-        Err(e) => return make_error(500, &format!("query error: {e}")),
+        Err(e) => return make_error(500, &format!("query error: {e}"), origin),
     };
     let elapsed_ms = js_sys::Date::now() - start_ms;
 
     if geojson {
-        make_json(200, &build_feature_collection(&matched, elapsed_ms))
+        make_json(200, &build_feature_collection(&matched, elapsed_ms), origin)
     } else {
         let mut result = build_geo_result(&matched);
         result.elapsed_ms = elapsed_ms;
-        make_json(200, &result)
+        make_json(200, &result, origin)
     }
 }
 
@@ -372,12 +378,18 @@ fn build_feature_collection(matched: &[MatchedDiv], elapsed_ms: f64) -> FeatureC
 
 // ---- response helpers ----
 
-const ALLOWED_ORIGIN: &str = "https://ringsaturn.github.io";
+const ALLOWED_ORIGINS: &[&str] = &["https://ringsaturn.github.io", "http://localhost:9999"];
 
-fn cors_preflight() -> Result<HttpResponse> {
+fn allowed_origin(origin: Option<&str>) -> Option<&'static str> {
+    let o = origin?;
+    ALLOWED_ORIGINS.iter().copied().find(|&allowed| allowed == o)
+}
+
+fn cors_preflight(origin: Option<&str>) -> Result<HttpResponse> {
+    let origin = origin.unwrap_or("");
     ResponseBuilder::new()
         .with_status(204)
-        .with_header("access-control-allow-origin", ALLOWED_ORIGIN)?
+        .with_header("access-control-allow-origin", origin)?
         .with_header("access-control-allow-methods", "GET, OPTIONS")?
         .with_header("access-control-allow-headers", "*")?
         .with_header("access-control-max-age", "86400")?
@@ -386,10 +398,11 @@ fn cors_preflight() -> Result<HttpResponse> {
         .try_into()
 }
 
-fn make_json<T: Serialize>(status: u16, value: &T) -> Result<HttpResponse> {
+fn make_json<T: Serialize>(status: u16, value: &T, origin: Option<&str>) -> Result<HttpResponse> {
+    let origin = origin.unwrap_or("");
     ResponseBuilder::new()
         .with_status(status)
-        .with_header("access-control-allow-origin", ALLOWED_ORIGIN)?
+        .with_header("access-control-allow-origin", origin)?
         .with_header("access-control-allow-methods", "GET, OPTIONS")?
         .with_header("vary", "origin")?
         .from_json(value)?
@@ -401,8 +414,8 @@ struct ErrorBody<'a> {
     error: &'a str,
 }
 
-fn make_error(status: u16, msg: &str) -> Result<HttpResponse> {
-    make_json(status, &ErrorBody { error: msg })
+fn make_error(status: u16, msg: &str, origin: Option<&str>) -> Result<HttpResponse> {
+    make_json(status, &ErrorBody { error: msg }, origin)
 }
 
 // ---- parameter parsing ----
