@@ -9,7 +9,13 @@ command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
 [[r2_buckets]]
 binding = "XS_BUCKET"
 bucket_name = "dataset"
+preview_bucket_name = "dataset"
 
 [vars]
 XS_INDEX_KEY = "xiangshan/divisions.xs-index.gz"
 XS_SLAB_KEY  = "xiangshan/divisions.xs-poly"
+
+# Local dev: uses debug build (much faster to compile)
+[env.dev]
+[env.dev.build]
+command = "cargo install -q \"worker-build@^0.8\" && worker-build"
