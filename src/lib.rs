@@ -3,12 +3,12 @@
 // Cold start: fetches divisions.xs-index.gz from the bound R2 bucket, decompresses
 // it, and parses the XSCI compact index into a global OnceLock.
 //
-// Per request: GET /?lng=<lng>&lat=<lat>[&lang=<lang>]
+// Per request: GET /?lng=<lng>&lat=<lat>
 //   1. Looks up coarse + fine grid candidates from the in-memory index.
 //   2. BBox-filters candidates.
 //   3. Fetches slab chunks from R2 via Range requests.
 //   4. Does point-in-polygon with geometry-rs.
-//   5. Returns JSON result.
+//   5. Returns JSON result with all available name translations.
 mod flatbuf;
 mod finder;
 mod xsci;
@@ -34,7 +34,7 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<HttpResponse
     }
 
     let query = req.uri().query().unwrap_or("");
-    let (lng, lat, lang) = match parse_params(query) {
+    let (lng, lat) = match parse_params(query) {
         Ok(v) => v,
         Err(msg) => return make_error(400, &msg),
     };
@@ -47,8 +47,12 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<HttpResponse
     let bucket = env.bucket("XS_BUCKET")?;
     let slab_key = slab_key(&env);
 
-    match run_query(finder, &bucket, &slab_key, lng, lat, &lang).await {
-        Ok(result) => make_json(200, &result),
+    let start_ms = js_sys::Date::now();
+    match run_query(finder, &bucket, &slab_key, lng, lat).await {
+        Ok(mut result) => {
+            result.elapsed_ms = js_sys::Date::now() - start_ms;
+            make_json(200, &result)
+        }
         Err(e) => make_error(500, &format!("query error: {e}")),
     }
 }
@@ -120,27 +124,38 @@ fn decompress_gzip(data: &[u8]) -> Result<Vec<u8>> {
 // ---- query ----
 
 #[derive(Serialize, Default)]
+struct DivisionInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    names: Option<std::collections::HashMap<String, String>>,
+}
+
+impl DivisionInfo {
+    fn from_chunk(chunk: &[u8]) -> Self {
+        DivisionInfo {
+            id: flatbuf::get_id(chunk).map(str::to_string),
+            name: flatbuf::get_primary_name(chunk),
+            names: flatbuf::get_names_map(chunk),
+        }
+    }
+}
+
+#[derive(Serialize, Default)]
 struct GeoResult {
     #[serde(skip_serializing_if = "Option::is_none")]
-    country: Option<String>,
+    country: Option<DivisionInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    country_id: Option<String>,
+    region: Option<DivisionInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    region: Option<String>,
+    county: Option<DivisionInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    region_id: Option<String>,
+    local_admin: Option<DivisionInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    county: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    county_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    local_admin: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    local_admin_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    locality: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    locality_id: Option<String>,
+    locality: Option<DivisionInfo>,
+    elapsed_ms: f64,
 }
 
 async fn run_query(
@@ -149,15 +164,13 @@ async fn run_query(
     slab_key: &str,
     lng: f64,
     lat: f64,
-    lang: &str,
 ) -> Result<GeoResult> {
     let mut r = GeoResult::default();
 
     // --- country preindex fast path ---
     if let Some(country_idx) = finder.country_for_cell(lng, lat) {
         let chunk = fetch_slab(bucket, slab_key, finder.slab_range(country_idx)).await?;
-        r.country = flatbuf::resolve_name(&chunk, lang);
-        r.country_id = flatbuf::get_id(&chunk).map(str::to_string);
+        r.country = Some(DivisionInfo::from_chunk(&chunk));
     }
 
     // --- coarse tier (Country, Dependency, MacroRegion, Region, MacroCounty) ---
@@ -165,12 +178,7 @@ async fn run_query(
     if coarse.len() == 1 && XsFinder::can_short_circuit(lng, lat) {
         let idx = coarse[0];
         let chunk = fetch_slab(bucket, slab_key, finder.slab_range(idx)).await?;
-        apply_coarse(
-            &mut r,
-            finder.subtype(idx),
-            flatbuf::resolve_name(&chunk, lang),
-            flatbuf::get_id(&chunk).map(str::to_string),
-        );
+        apply_coarse(&mut r, finder.subtype(idx), DivisionInfo::from_chunk(&chunk));
     } else {
         let country_known = r.country.is_some();
         let need = finder.bbox_filtered(coarse, lng, lat, |idx| {
@@ -187,12 +195,7 @@ async fn run_query(
             }
             let chunk = fetch_slab(bucket, slab_key, finder.slab_range(idx)).await?;
             if flatbuf::contains_point(&chunk, lng, lat) {
-                apply_coarse(
-                    &mut r,
-                    finder.subtype(idx),
-                    flatbuf::resolve_name(&chunk, lang),
-                    flatbuf::get_id(&chunk).map(str::to_string),
-                );
+                apply_coarse(&mut r, finder.subtype(idx), DivisionInfo::from_chunk(&chunk));
             }
         }
     }
@@ -202,12 +205,7 @@ async fn run_query(
     if fine.len() == 1 && XsFinder::can_short_circuit(lng, lat) {
         let idx = fine[0];
         let chunk = fetch_slab(bucket, slab_key, finder.slab_range(idx)).await?;
-        apply_fine(
-            &mut r,
-            finder.subtype(idx),
-            flatbuf::resolve_name(&chunk, lang),
-            flatbuf::get_id(&chunk).map(str::to_string),
-        );
+        apply_fine(&mut r, finder.subtype(idx), DivisionInfo::from_chunk(&chunk));
     } else {
         let need = finder.bbox_filtered(fine, lng, lat, |_| false);
         for idx in need {
@@ -216,12 +214,7 @@ async fn run_query(
             }
             let chunk = fetch_slab(bucket, slab_key, finder.slab_range(idx)).await?;
             if flatbuf::contains_point(&chunk, lng, lat) {
-                apply_fine(
-                    &mut r,
-                    finder.subtype(idx),
-                    flatbuf::resolve_name(&chunk, lang),
-                    flatbuf::get_id(&chunk).map(str::to_string),
-                );
+                apply_fine(&mut r, finder.subtype(idx), DivisionInfo::from_chunk(&chunk));
             }
         }
     }
@@ -242,48 +235,42 @@ async fn fetch_slab(bucket: &Bucket, key: &str, (offset, length): (u64, u64)) ->
         .map_err(|e| Error::RustError(format!("read slab: {e}")))
 }
 
-fn apply_coarse(r: &mut GeoResult, subtype: u8, name: Option<String>, id: Option<String>) {
+fn apply_coarse(r: &mut GeoResult, subtype: u8, info: DivisionInfo) {
     match subtype {
         SUBTYPE_COUNTRY | SUBTYPE_DEPENDENCY => {
             if r.country.is_none() {
-                r.country = name;
-                r.country_id = id;
+                r.country = Some(info);
             }
         }
         SUBTYPE_MACRO_REGION | SUBTYPE_REGION => {
             if r.region.is_none() {
-                r.region = name;
-                r.region_id = id;
+                r.region = Some(info);
             }
         }
         SUBTYPE_MACRO_COUNTY => {
             if r.county.is_none() {
-                r.county = name;
-                r.county_id = id;
+                r.county = Some(info);
             }
         }
         _ => {}
     }
 }
 
-fn apply_fine(r: &mut GeoResult, subtype: u8, name: Option<String>, id: Option<String>) {
+fn apply_fine(r: &mut GeoResult, subtype: u8, info: DivisionInfo) {
     match subtype {
         SUBTYPE_COUNTY => {
             if r.county.is_none() {
-                r.county = name;
-                r.county_id = id;
+                r.county = Some(info);
             }
         }
         SUBTYPE_LOCAL_ADMIN => {
             if r.local_admin.is_none() {
-                r.local_admin = name;
-                r.local_admin_id = id;
+                r.local_admin = Some(info);
             }
         }
         SUBTYPE_LOCALITY => {
             if r.locality.is_none() {
-                r.locality = name;
-                r.locality_id = id;
+                r.locality = Some(info);
             }
         }
         _ => {}
@@ -311,10 +298,9 @@ fn make_error(status: u16, msg: &str) -> Result<HttpResponse> {
 
 // ---- parameter parsing ----
 
-fn parse_params(query: &str) -> std::result::Result<(f64, f64, String), String> {
+fn parse_params(query: &str) -> std::result::Result<(f64, f64), String> {
     let mut lng: Option<f64> = None;
     let mut lat: Option<f64> = None;
-    let mut lang = String::new();
 
     for pair in query.split('&') {
         let mut it = pair.splitn(2, '=');
@@ -323,12 +309,11 @@ fn parse_params(query: &str) -> std::result::Result<(f64, f64, String), String> 
         match key {
             "lng" => lng = val.parse().ok(),
             "lat" => lat = val.parse().ok(),
-            "lang" => lang = val.to_string(),
             _ => {}
         }
     }
 
     let lng = lng.ok_or_else(|| "missing or invalid `lng` parameter".to_string())?;
     let lat = lat.ok_or_else(|| "missing or invalid `lat` parameter".to_string())?;
-    Ok((lng, lat, lang))
+    Ok((lng, lat))
 }

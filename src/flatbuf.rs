@@ -214,31 +214,15 @@ pub fn get_id(chunk: &[u8]) -> Option<&str> {
     read_str(chunk, tp, 0)
 }
 
-// Returns the resolved display name.
-// If lang is non-empty, checks names_common JSON (field 10) before falling back
-// to the primary name (field 2).
-pub fn resolve_name(chunk: &[u8], lang: &str) -> Option<String> {
+// Returns the primary name (field 2) of a CompressedDivision.
+pub fn get_primary_name(chunk: &[u8]) -> Option<String> {
     let tp = root_table_pos(chunk)?;
-
-    if !lang.is_empty() {
-        if let Some(names_json) = read_str(chunk, tp, 10) {
-            if let Some(name) = lookup_i18n(names_json, lang) {
-                return Some(name);
-            }
-        }
-    }
-
     read_str(chunk, tp, 2).map(|s| s.to_string())
 }
 
-fn lookup_i18n(json: &str, lang: &str) -> Option<String> {
-    // names_common is a flat JSON object: {"zh":"…","en":"…"}
-    // We do a lightweight parse rather than pulling in full serde overhead here.
-    let key = format!("\"{}\"", lang);
-    let start = json.find(&key)?;
-    let rest = json[start + key.len()..].trim_start();
-    let rest = rest.strip_prefix(':')?.trim_start();
-    let rest = rest.strip_prefix('"')?;
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+// Returns all i18n names from the names_common JSON (field 10).
+pub fn get_names_map(chunk: &[u8]) -> Option<std::collections::HashMap<String, String>> {
+    let tp = root_table_pos(chunk)?;
+    let json_str = read_str(chunk, tp, 10)?;
+    serde_json::from_str(json_str).ok()
 }
