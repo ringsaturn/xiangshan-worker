@@ -207,6 +207,50 @@ pub fn contains_point(chunk: &[u8], lng: f64, lat: f64) -> bool {
     false
 }
 
+// ----- GeoJSON geometry extraction -----
+
+fn ring_to_coords(buf: &[u8], ring_tp: usize) -> Option<Vec<[f64; 2]>> {
+    let data = read_bytes_vec(buf, ring_tp, 0)?;
+    let count = read_u32_field(buf, ring_tp, 1);
+    let pts = decode_ring(data, count)?;
+    Some(pts.iter().map(|p| [p.x, p.y]).collect())
+}
+
+fn polygon_coords(buf: &[u8], poly_tp: usize) -> Option<Vec<Vec<[f64; 2]>>> {
+    let ext_tp = read_table_field(buf, poly_tp, 0)?;
+    let mut rings = vec![ring_to_coords(buf, ext_tp)?];
+    if let Some((holes_data, holes_count)) = read_table_vec(buf, poly_tp, 1) {
+        for i in 0..holes_count {
+            if let Some(hole_tp) = table_vec_elem(buf, holes_data, i) {
+                if let Some(coords) = ring_to_coords(buf, hole_tp) {
+                    rings.push(coords);
+                }
+            }
+        }
+    }
+    Some(rings)
+}
+
+// Returns the polygon(s) of a CompressedDivision as a GeoJSON geometry Value.
+pub fn get_geometry_geojson(chunk: &[u8]) -> Option<serde_json::Value> {
+    let tp = root_table_pos(chunk)?;
+    let (poly_data, poly_count) = read_table_vec(chunk, tp, 9)?;
+    let polys: Vec<Vec<Vec<[f64; 2]>>> = (0..poly_count)
+        .filter_map(|i| {
+            let poly_tp = table_vec_elem(chunk, poly_data, i)?;
+            polygon_coords(chunk, poly_tp)
+        })
+        .collect();
+    if polys.is_empty() {
+        return None;
+    }
+    if polys.len() == 1 {
+        Some(serde_json::json!({ "type": "Polygon", "coordinates": polys[0] }))
+    } else {
+        Some(serde_json::json!({ "type": "MultiPolygon", "coordinates": polys }))
+    }
+}
+
 // ----- metadata extraction -----
 
 // Returns the `id` field (field 0) of a CompressedDivision.
