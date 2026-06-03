@@ -324,10 +324,16 @@
       ? `Query: ${data.elapsed_ms.toFixed(0)} ms`
       : '';
 
-    const present = LEVELS.filter(l => data[l.key]);
+    const byLevel = {};
+    for (const f of (data.features || [])) {
+      const p = f.properties || {};
+      if (p.level && !byLevel[p.level]) byLevel[p.level] = p;
+    }
+
+    const present = LEVELS.filter(l => byLevel[l.key]);
 
     $('levels').innerHTML = present.length
-      ? present.map(l => levelRowHTML(l, data[l.key])).join('')
+      ? present.map(l => levelRowHTML(l, byLevel[l.key])).join('')
       : '<p class="msg">No administrative data found for this location.</p>';
 
     panel('show');

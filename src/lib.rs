@@ -344,16 +344,6 @@ struct FeatureCollection {
     fc_type: &'static str,
     elapsed_ms: f64,
     features: Vec<GeoFeature>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    country: Option<DivisionInfo>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    region: Option<DivisionInfo>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    county: Option<DivisionInfo>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    local_admin: Option<DivisionInfo>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    locality: Option<DivisionInfo>,
 }
 
 #[derive(Serialize)]
@@ -380,11 +370,6 @@ fn build_feature_collection(matched: &[MatchedDiv], elapsed_ms: f64) -> FeatureC
         fc_type: "FeatureCollection",
         elapsed_ms,
         features: Vec::new(),
-        country: None,
-        region: None,
-        county: None,
-        local_admin: None,
-        locality: None,
     };
 
     for div in matched {
@@ -396,23 +381,11 @@ fn build_feature_collection(matched: &[MatchedDiv], elapsed_ms: f64) -> FeatureC
                 geometry,
                 properties: FeatureProps {
                     level: div.level,
-                    id: info.id.clone(),
-                    name: info.name.clone(),
-                    names: info.names.clone(),
+                    id: info.id,
+                    name: info.name,
+                    names: info.names,
                 },
             });
-        }
-
-        let slot = match div.level {
-            "country"     => &mut fc.country,
-            "region"      => &mut fc.region,
-            "county"      => &mut fc.county,
-            "local_admin" => &mut fc.local_admin,
-            "locality"    => &mut fc.locality,
-            _             => continue,
-        };
-        if slot.is_none() {
-            *slot = Some(info);
         }
     }
 
