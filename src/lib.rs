@@ -276,7 +276,7 @@ async fn fetch_slab(bucket: &Bucket, key: &str, (offset, length): (u64, u64)) ->
 
 // ---- output formats ----
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Clone, Default)]
 struct DivisionInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<String>,
@@ -333,6 +333,16 @@ struct FeatureCollection {
     fc_type: &'static str,
     elapsed_ms: f64,
     features: Vec<GeoFeature>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    country: Option<DivisionInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    region: Option<DivisionInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    county: Option<DivisionInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_admin: Option<DivisionInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    locality: Option<DivisionInfo>,
 }
 
 #[derive(Serialize)]
@@ -350,30 +360,52 @@ struct FeatureProps {
     id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    names: Option<std::collections::HashMap<String, String>>,
 }
 
 fn build_feature_collection(matched: &[MatchedDiv], elapsed_ms: f64) -> FeatureCollection {
-    let features = matched
-        .iter()
-        .filter_map(|div| {
-            let geometry = flatbuf::get_geometry_geojson(&div.chunk)?;
-            Some(GeoFeature {
+    let mut fc = FeatureCollection {
+        fc_type: "FeatureCollection",
+        elapsed_ms,
+        features: Vec::new(),
+        country: None,
+        region: None,
+        county: None,
+        local_admin: None,
+        locality: None,
+    };
+
+    for div in matched {
+        let info = DivisionInfo::from_chunk(&div.chunk);
+
+        if let Some(geometry) = flatbuf::get_geometry_geojson(&div.chunk) {
+            fc.features.push(GeoFeature {
                 feature_type: "Feature",
                 geometry,
                 properties: FeatureProps {
                     level: div.level,
-                    id: flatbuf::get_id(&div.chunk).map(str::to_string),
-                    name: flatbuf::get_primary_name(&div.chunk),
+                    id: info.id.clone(),
+                    name: info.name.clone(),
+                    names: info.names.clone(),
                 },
-            })
-        })
-        .collect();
+            });
+        }
 
-    FeatureCollection {
-        fc_type: "FeatureCollection",
-        elapsed_ms,
-        features,
+        let slot = match div.level {
+            "country"     => &mut fc.country,
+            "region"      => &mut fc.region,
+            "county"      => &mut fc.county,
+            "local_admin" => &mut fc.local_admin,
+            "locality"    => &mut fc.locality,
+            _             => continue,
+        };
+        if slot.is_none() {
+            *slot = Some(info);
+        }
     }
+
+    fc
 }
 
 // ---- response helpers ----
