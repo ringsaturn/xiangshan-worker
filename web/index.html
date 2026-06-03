@@ -226,7 +226,7 @@
     style: `https://api.protomaps.com/styles/v2/light.json?key=${PROTOMAPS_KEY}`,
     center: [20, 25],
     zoom: 2.2,
-    attributionControl: { compact: true },
+    attributionControl: { compact: true, customAttribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap contributors</a>, <a href="https://overturemaps.org" target="_blank">Overture Maps Foundation</a>' },
   });
 
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
