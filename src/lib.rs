@@ -25,6 +25,8 @@ use finder::{
 
 static FINDER: OnceLock<XsFinder> = OnceLock::new();
 
+const INDEX_HTML: &str = include_str!("web/index.html");
+
 // ---- worker entry point ----
 
 #[event(fetch)]
@@ -40,6 +42,15 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<HttpResponse
     }
     if req.method() != http::Method::GET {
         return make_error(405, "method not allowed", origin);
+    }
+
+    let path = req.uri().path();
+
+    if path == "/" || path.is_empty() {
+        return make_html(origin);
+    }
+    if path != "/api" {
+        return make_error(404, "not found", origin);
     }
 
     let query = req.uri().query().unwrap_or("");
@@ -427,6 +438,16 @@ fn cors_preflight(origin: Option<&str>) -> Result<HttpResponse> {
         .with_header("access-control-max-age", "86400")?
         .with_header("vary", "origin")?
         .empty()
+        .try_into()
+}
+
+fn make_html(origin: Option<&str>) -> Result<HttpResponse> {
+    let origin = origin.unwrap_or("");
+    ResponseBuilder::new()
+        .with_status(200)
+        .with_header("access-control-allow-origin", origin)?
+        .with_header("vary", "origin")?
+        .from_html(INDEX_HTML)?
         .try_into()
 }
 
